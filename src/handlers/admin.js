@@ -522,7 +522,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
         return createBadRequestResponse('tgBotTokenRequired');
       }
       try {
-        const testMsg = `✅ **测试通知**\n\n这是一条来自 CF Server Monitor 的测试消息。\n\n**时间:** ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+        const testMsg = `✅ **Thông báo thử nghiệm**\n\nĐây là tin nhắn thử nghiệm từ CF Server Monitor.\n\n**Thời gian:** ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`;
         const result = await sendNotification({ tg_bot_token, tg_chat_id: tg_chat_id || '' }, testMsg);
         if(result) {
           console.warn('Test notification failed:', result);
