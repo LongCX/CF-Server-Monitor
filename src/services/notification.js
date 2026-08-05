@@ -11,12 +11,12 @@ const RESOURCE_ALERT_STATE_RECOVERED = 'recovered';
 const RESOURCE_ALERT_STATE_KEY = 'resource_alert_state';
 
 function formatLastReportTime(timestamp) {
-  if (!timestamp) return '无上报记录';
+  if (!timestamp) return 'Chưa có dữ liệu báo cáo';
 
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return '无效时间';
+  if (Number.isNaN(date.getTime())) return 'Thời gian không hợp lệ';
 
-  return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  return date.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
 function formatMegabitsPerSecond(value) {
@@ -37,12 +37,12 @@ function formatResourceMetric(metric) {
     cpu: 'CPU',
     ram: 'RAM',
     disk: 'DISK',
-    netIn: '下行网速',
-    netOut: '上行网速',
-    netTotal: '总网速'
+    netIn: 'Tốc độ tải xuống',
+    netOut: 'Tốc độ tải lên',
+    netTotal: 'Tổng tốc độ mạng'
   };
   const label = metricLabels[metric.metric] || metric.metric;
-  const valueLabel = metric.mode === 'average' ? '平均' : '当前';
+  const valueLabel = metric.mode === 'average' ? 'trung bình' : 'hiện tại';
   const value = metric.triggerValue ?? metric.current;
   if (metric.metric === 'cpu' || metric.metric === 'ram' || metric.metric === 'disk') {
     return `${label} ${valueLabel} ${formatPercent(value)} > ${formatPercent(metric.threshold)}`;
@@ -55,9 +55,9 @@ function getResourceMetricLabel(metric) {
     cpu: 'CPU',
     ram: 'RAM',
     disk: 'DISK',
-    netIn: '下行网速',
-    netOut: '上行网速',
-    netTotal: '总网速'
+    netIn: 'Tốc độ tải xuống',
+    netOut: 'Tốc độ tải lên',
+    netTotal: 'Tổng tốc độ mạng'
   };
   return metricLabels[metric?.metric] || metric?.metric || '';
 }
@@ -76,7 +76,7 @@ function formatRecoveredResourceMetric(metric) {
   const valueText = formatResourceMetricValue(metric, value);
   const thresholdText = formatResourceMetricValue(metric, metric.threshold);
 
-  return `${label} 当前 ${valueText} < ${thresholdText}`;
+  return `${label} hiện tại ${valueText} < ${thresholdText}`;
 }
 
 function parseResourceAlertState(row) {
@@ -161,7 +161,7 @@ function getResourceAlertRuleIntervalMs(rule) {
 }
 
 function formatCurrentTime() {
-  return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  return new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
 function getResourceAlertRuleStateKey(rule, serverId) {
@@ -169,7 +169,7 @@ function getResourceAlertRuleStateKey(rule, serverId) {
 }
 
 function getResourceAlertRuleName(rule) {
-  return String(rule?.name || '资源负载告警').trim() || '资源负载告警';
+  return String(rule?.name || 'Cảnh báo tải tài nguyên').trim() || 'Cảnh báo tải tài nguyên';
 }
 
 function getResourceAlertRuleServerIds(rule, servers) {
@@ -254,13 +254,13 @@ export async function sendNotification(settings, msg) {
   if(!settings.tg_bot_token) return;
   const title = "💌 Cloudflare Server Monitor";
   if(settings.tg_bot_token.indexOf("onebot:") == 0) {
-    // OneBot 协议 (QQ 等)，私聊格式: onebot:http://127.0.0.1:3000/send_private_msg?access_token=xxx
-    // 群聊格式: onebot:http://127.0.0.1:3000/send_group_msg?access_token=xxx
+    // Giao thức OneBot (QQ, v.v.), định dạng chat riêng: onebot:http://127.0.0.1:3000/send_private_msg?access_token=xxx
+    // Định dạng nhóm: onebot:http://127.0.0.1:3000/send_group_msg?access_token=xxx
     let onebotUrl = settings.tg_bot_token.replace("onebot:", "");
     const targetId = settings.tg_chat_id || '';
     const isGroup = onebotUrl.indexOf("send_group_msg") != -1;
     if (!targetId) {
-      return "OneBot 通知失败: 缺少 tg_chat_id（私人: QQ号，群: group:群号）";
+      return "Gửi thông báo OneBot thất bại: thiếu tg_chat_id (cá nhân: số QQ, nhóm: group:số nhóm)";
     }
     try {
       const endpoint = onebotUrl.trim();
@@ -281,10 +281,10 @@ export async function sendNotification(settings, msg) {
         body: JSON.stringify(body)
       });
     } catch (e) {
-      return "OneBot 通知发送失败: " + e.message;
+      return "Gửi thông báo OneBot thất bại: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("open.feishu.cn")) {
-    // 飞书机器人 Webhook
+    // Webhook bot Feishu (Lark)
     try {
       await fetchWithRetry(settings.tg_bot_token, {
         method: 'POST',
@@ -299,10 +299,10 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "飞书通知发送失败: " + e.message;
+      return "Gửi thông báo Feishu thất bại: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("oapi.dingtalk.com") || settings.tg_bot_token.includes("api.dingtalk.com")) {
-    // 钉钉机器人 Webhook
+    // Webhook bot DingTalk
     try {
       await fetchWithRetry(settings.tg_bot_token, {
         method: 'POST',
@@ -313,7 +313,7 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "钉钉通知发送失败: " + e.message;
+      return "Gửi thông báo DingTalk thất bại: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("https://api.day.app/") || settings.tg_bot_token.indexOf("bark:") == 0) {
     let barkUrl = settings.tg_bot_token;
@@ -331,7 +331,7 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "Bark通知发送失败: " + e.message;
+      return "Gửi thông báo Bark thất bại: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("https://qyapi.weixin.qq.com")){
     try {
@@ -346,9 +346,9 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "企业微信通知发送失败: " + e.message;
+      return "Gửi thông báo WeChat Work thất bại: " + e.message;
     }
-  // Server 酱（使用 sendkey）
+  // Server酱 (dùng sendkey)
   }else if(settings.tg_bot_token.includes("https://sctapi.ftqq.com/")) {
     try {
       await fetchWithRetry(settings.tg_bot_token, {
@@ -360,12 +360,12 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "Server酱通知发送失败: " + e.message;
+      return "Gửi thông báo Server酱 thất bại: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("https://wxpusher.zjiecode.com/api/send/message/SPT_")) {
     const match = settings.tg_bot_token.match(/\/message\/([^/]+)/);
     const spt = match ? match[1] : null;
-    if (!spt) return "WxPusher 通知失败: 无法提取 SPT";
+    if (!spt) return "Gửi thông báo WxPusher thất bại: không trích xuất được SPT";
     try {
       await fetchWithRetry("https://wxpusher.zjiecode.com/api/send/message/simple-push", {
         method: 'POST',
@@ -378,7 +378,7 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "WxPusher通知发送失败: " + e.message;
+      return "Gửi thông báo WxPusher thất bại: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("/message?token=")) {
     try {
@@ -395,10 +395,10 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "Gotify通知发送失败: " + e.message;
+      return "Gửi thông báo Gotify thất bại: " + e.message;
     }
   }else if(settings.tg_chat_id) {
-    // Telegram Bot (最后 fallback，通过 chat_id 判断)
+    // Telegram Bot (phương án dự phòng cuối cùng, xác định qua chat_id)
     try {
       await fetchWithRetry(`https://api.telegram.org/bot${settings.tg_bot_token}/sendMessage`, {
         method: 'POST',
@@ -410,10 +410,10 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "Telegram 通知发送失败: " + e.message;
+      return "Gửi thông báo Telegram thất bại: " + e.message;
     }
   }else {
-    return "未知的通知方式";
+    return "Phương thức thông báo không xác định";
   }
 }
 
@@ -479,17 +479,17 @@ export async function checkOfflineNodes(db) {
       const nodeList = offlineNodes
         .map(n => `• ${n.name} - ${formatLastReportTime(n.lastReportTime)}`)
         .join('\n');
-      const msg = `⚠️ **节点离线告警** (${offlineNodes.length}个)\n\n${nodeList}`;
+      const msg = `⚠️ **Cảnh báo Node ngoại tuyến** (${offlineNodes.length} node)\n\n${nodeList}`;
       await sendNotification(siteSettings, msg);
     }
 
     if (recoveredNodes.length > 0) {
       const nodeList = recoveredNodes.map(n => `• ${n.name}`).join('\n');
-      const msg = `✅ **节点恢复通知** (${recoveredNodes.length}个)\n\n${nodeList}\n\n**时间:** ${new Date().toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}`;
+      const msg = `✅ **Thông báo Node đã khôi phục** (${recoveredNodes.length} node)\n\n${nodeList}\n\n**Thời gian:** ${new Date().toLocaleString('vi-VN', {timeZone: 'Asia/Ho_Chi_Minh'})}`;
       await sendNotification(siteSettings, msg);
     }
   } catch (e) {
-    console.error('离线检测失败:', e);
+    console.error('Kiểm tra ngoại tuyến thất bại:', e);
   }
 }
 
@@ -657,23 +657,23 @@ export async function checkResourceAlerts(env) {
     const messageSections = [];
     if (alertNodes.length > 0) {
       const nodeList = alertNodes.map(({ rule, server, alert }) => {
-        const metrics = alert.metrics.map(formatResourceMetric).join('；');
-        const modeText = alert.mode === 'average' ? '平均' : '窗口样本连续';
-        return `• ${getResourceAlertRuleName(rule)} / ${server.name} - ${modeText} ${rule.intervalMinutes} 分钟\n  ${metrics}`;
+        const metrics = alert.metrics.map(formatResourceMetric).join('; ');
+        const modeText = alert.mode === 'average' ? 'trung bình' : 'liên tục theo mẫu trong cửa sổ';
+        return `• ${getResourceAlertRuleName(rule)} / ${server.name} - ${modeText} ${rule.intervalMinutes} phút\n  ${metrics}`;
       }).join('\n');
-      messageSections.push(`⚠️ **资源负载告警** (${alertNodes.length}个)\n\n${nodeList}`);
+      messageSections.push(`⚠️ **Cảnh báo tải tài nguyên** (${alertNodes.length} node)\n\n${nodeList}`);
     }
 
     if (recoveredNodes.length > 0) {
       const nodeList = recoveredNodes
         .map(({ rule, server, metrics }) => {
           const metricText = (metrics && metrics.length > 0)
-            ? '\n  ' + metrics.map(formatRecoveredResourceMetric).filter(Boolean).join('；')
+            ? '\n  ' + metrics.map(formatRecoveredResourceMetric).filter(Boolean).join('; ')
             : '';
           return `• ${getResourceAlertRuleName(rule)} / ${server.name}${metricText}`;
         })
         .join('\n');
-      messageSections.push(`✅ **资源负载恢复** (${recoveredNodes.length}个)\n\n${nodeList}`);
+      messageSections.push(`✅ **Tải tài nguyên đã phục hồi** (${recoveredNodes.length} node)\n\n${nodeList}`);
     }
 
     if (stateChanged) {
@@ -681,14 +681,14 @@ export async function checkResourceAlerts(env) {
     }
 
     if (messageSections.length > 0) {
-      const msg = `${messageSections.join('\n\n')}\n\n**时间:** ${formatCurrentTime()}`;
+      const msg = `${messageSections.join('\n\n')}\n\n**Thời gian:** ${formatCurrentTime()}`;
       const notificationError = await sendNotification(siteSettings, msg);
       if (notificationError) {
         console.warn('[ResourceAlert] notification failed:', notificationError);
       }
     }
   } catch (e) {
-    console.error('资源负载告警检测失败:', e);
+    console.error('Kiểm tra cảnh báo tải tài nguyên thất bại:', e);
   }
 }
 
@@ -715,7 +715,7 @@ export async function checkExpiringServers(db) {
         s.expire_date = renewal.expire_date;
         s.billing_cycle = billingCycle;
         hasRenewedServers = true;
-        debug(`[Cron] 服务器 ${s.name} 已自动续费，到期日期更新为 ${s.expire_date}`);
+        debug(`[Cron] Server ${s.name} đã tự động gia hạn, ngày hết hạn cập nhật thành ${s.expire_date}`);
       }
 
       if (!shouldNotify) continue;
@@ -726,7 +726,7 @@ export async function checkExpiringServers(db) {
       const diff = expTime - now;
       const days = Math.ceil(diff / (1000 * 3600 * 24));
 
-      debug(`[Cron] 检测到服务器 ${s.name} 到期日期 ${s.expire_date}，剩余天数 ${days} 天`);
+      debug(`[Cron] Phát hiện server ${s.name} có ngày hết hạn ${s.expire_date}, còn lại ${days} ngày`);
 
       if (days > 0 && days <= reminderDays) {
         expiringServers.push({ name: s.name, expire_date: s.expire_date, days });
@@ -738,12 +738,12 @@ export async function checkExpiringServers(db) {
     }
 
     if (expiringServers.length > 0) {
-      const serverList = expiringServers.map(s => `• ${s.name} - 剩余${s.days}天 (${s.expire_date})`).join('\n');
-      const msg = `⏰ **服务器到期提醒** (${expiringServers.length}个)\n\n${serverList}`;
-      debug(`[Cron] 发送到期提醒通知: ${msg}`);
+      const serverList = expiringServers.map(s => `• ${s.name} - còn lại ${s.days} ngày (${s.expire_date})`).join('\n');
+      const msg = `⏰ **Nhắc nhở Server sắp hết hạn** (${expiringServers.length} server)\n\n${serverList}`;
+      debug(`[Cron] Gửi thông báo nhắc nhở hết hạn: ${msg}`);
       await sendNotification(siteSettings, msg);
     }
   } catch (e) {
-    console.error('到期检测失败:', e);
+    console.error('Kiểm tra hết hạn thất bại:', e);
   }
 }
