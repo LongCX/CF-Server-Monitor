@@ -292,7 +292,7 @@ export function buildResourceAlertNotificationPayloads(alertNodes, recoveredNode
     payloads,
     buildGroupedResourceAlertEntries(alertNodes, 'triggerValue'),
     {
-      event: '资源负载告警',
+      event: 'Cảnh báo quá tải tài nguyên',
       emoji: '❌'
     }
   );
@@ -300,7 +300,7 @@ export function buildResourceAlertNotificationPayloads(alertNodes, recoveredNode
     payloads,
     buildGroupedResourceAlertEntries(recoveredNodes, 'current'),
     {
-      event: '资源负载恢复',
+      event: 'Tài nguyên đã khôi phục',
       emoji: '✅'
     }
   );
