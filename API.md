@@ -41,7 +41,7 @@
   - [3.2](#32-action-login---登录) [`action: login`](#32-action-login---登录) [- 登录](#32-action-login---登录)
   - [3.3](#33-action-get_settings---读取全部设置) [`action: get_settings`](#33-action-get_settings---读取全部设置) [- 读取全部设置](#33-action-get_settings---读取全部设置)
   - [3.4](#34-action-list---列出全部服务器含在线统计) [`action: list`](#34-action-list---列出全部服务器含在线统计) [- 列出全部服务器（含在线/统计）](#34-action-list---列出全部服务器含在线统计)
-  - [3.5](#35-action-d1_usage---d1--workers-用量) [`action: d1_usage`](#35-action-d1_usage---d1--workers-用量) [- D1 / Workers 用量](#35-action-d1_usage---d1--workers-用量)
+  - [3.5](#35-action-d1_usage---d1--workers--durable-objects-用量) [`action: d1_usage`](#35-action-d1_usage---d1--workers--durable-objects-用量) [- D1 / Workers / Durable Objects 用量](#35-action-d1_usage---d1--workers--durable-objects-用量)
   - [3.6](#36-action-save_settings---保存设置) [`action: save_settings`](#36-action-save_settings---保存设置) [- 保存设置](#36-action-save_settings---保存设置)
   - [3.6.1](#361-action-start_theme_preview---生成主题预览授权) [`action: start_theme_preview`](#361-action-start_theme_preview---生成主题预览授权) [- 生成主题预览授权](#361-action-start_theme_preview---生成主题预览授权)
   - [3.6.2](#362-action-clear_theme_preview_auth---清除主题预览授权) [`action: clear_theme_preview_auth`](#362-action-clear_theme_preview_auth---清除主题预览授权) [- 清除主题预览授权](#362-action-clear_theme_preview_auth---清除主题预览授权)
@@ -112,6 +112,17 @@
 > **缓存提示**：管理端登录成功后，前端应将 `token` 存于 `localStorage`，并对所有非登录的 `admin/api` 请求自动加上 `Authorization: Bearer <token>` Header。
 >
 > **2026-07-26 修订**：加载站点设置时，后端会在缺少有效 `jwt_secret` 时生成并持久化一个 32 字节随机密钥。因此第 2、3 级回退主要用于数据库加载异常等兜底场景。
+
+#### D. WebSocket JWT（私有站点前端实时推送）
+
+- **使用位置**：`GET /api/ws`，仅当 `site_options.is_public !== 'true'` 时强制校验
+- **认证来源**（任一通过即可）：
+  - `Authorization: Bearer <token>`
+  - `Cookie: cfsm_auth=<token>`
+  - 查询参数：`token=<token>`、`auth_token=<token>` 或 `ws_token=<token>`
+- **失败返回**：`401 { "error": "Unauthorized", "code": 401 }`
+
+浏览器原生 WebSocket 不能自定义 `Authorization` Header。内置前端同域连接走 `cfsm_auth` Cookie，跨域连接才追加 `token=<jwt>` 查询参数。服务端会在转发到 Durable Object 前完成私有站点权限校验；公开站点不要求 JWT。
 
 ### 0.2 Turnstile 人机验证
 
@@ -217,15 +228,37 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 **Request**
 
 - Method：`POST`
+- WebSocket：`GET /update` + `Upgrade: websocket`，公网 URL 形如 `wss://status.example.com/update`
 - Path：`/update`
 - Headers：
   ```
   Content-Type: application/json
   X-Agent-Version: <探针版本号>
-  X-Agent-Config-Schema: 3
+  X-Agent-Config-Schema: 5
   X-Agent-Config-Md5: <最后成功应用的配置 MD5，首次为 none>
   ```
-  动态配置请求头为新版探针使用的可选字段；未携带时保持旧版响应协议。
+  动态配置请求头为新版探针使用的可选字段；当前新 Go Agent 使用 schema `5`。schema `3` / `4` 仍按旧兼容配置返回，未携带时保持旧版响应协议。
+
+  WebSocket 握手只能使用 `GET + Upgrade`，这是 WebSocket 协议限制；后端仍通过同一个 `/update` 路径区分 `POST` 与 `wss`。握手成功后服务端先发送：
+
+  ```json
+  { "type": "hello", "ts": 1737638340000, "protocol": "update" }
+  ```
+
+  WebSocket 上报消息兼容下方 POST JSON body，也支持包一层 `type: "update"`：
+
+  ```json
+  {
+    "type": "update",
+    "id": "9b2c4d3e-1a2b-4c5d-9e8f-7a6b5c4d3e2f",
+    "secret": "<API_SECRET>",
+    "payload": {
+      "metrics": { "...": "metrics" }
+    }
+  }
+  ```
+
+  第一条有效上报必须携带 `id` 与 `secret`。连接认证成功后，后续消息可以省略 `id` 与 `secret`；如果后续消息显式携带不同 `id` 或错误 `secret`，服务端会发送错误帧并关闭连接。
 - Body（JSON）：
   ```json
   {
@@ -292,7 +325,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
       { "ts": 1737638341000, "metrics": { "...": "metrics at this timestamp" } }
     ],
     "collect_interval": 1,
-    "report_interval": 60
+    "report_interval": 60,
+    "wss_report_interval": 2
   }
   ```
 
@@ -341,7 +375,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 **Response**
 
-- 旧版探针（未携带 `X-Agent-Config-Schema: 3`）：返回 `200 OK`：
+- 旧版探针（未携带受支持的 `X-Agent-Config-Schema`）：返回 `200 OK`：
   ```
   OK
   ```
@@ -350,10 +384,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 - 新版探针且配置 MD5 不一致，或仍有待确认流量修正：返回 `200 OK`，响应头携带当前
   `X-Agent-Config-Schema` 与 `X-Agent-Config-Md5`，响应体以固定顺序的完整 QueryParam 配置开头：
   ```text
-  collect_interval=0&report_interval=60&reset_day=1&schema_version=3&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=
+  collect_interval=2&report_interval=60&reset_day=1&schema_version=5&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto&wss_report_interval=2
   ```
   （`Content-Type: application/x-www-form-urlencoded; charset=utf-8`）
-- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新**：MD5 覆盖的规范配置仅包含 `collect_interval`、`report_interval`、`reset_day`、`schema_version`、`custom_ct`、`custom_cu`、`custom_cm`、`custom_bd`、`interface`。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
+- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新，2026-08-15 更新，2026-08-18 更新，2026-08-19 更新**：schema `3` 不包含 `connection_mode`；schema `4` 增加 `connection_mode`，并保持原有序列化与 MD5 计算不变；schema `5` 在 WSS 全局开启且服务器 `connection_mode=auto` 时追加 `wss_report_interval`（`1-5` 秒，默认 `2`），并将 `collect_interval=0` 或大于 WSS 间隔的值规范为 WSS 间隔。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
 - 探针应用流量修正后，可在下一次 `POST /update` 顶层回传 `rx_correction` / `tx_correction`。值匹配时后端清空待修正字段并直接返回纯文本 `OK`，本次请求不要求 `metrics`。
 - 失败：
   ```json
@@ -361,9 +395,82 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   { "error": "Server not found", "code": 404 }
   ```
 
+**WebSocket 上报响应 / 错误**
+
+- 握手失败：
+  - `503 { "error": "WebSocket not enabled", "code": 503 }`：未绑定 `METRICS_BROADCASTER` Durable Object
+  - `426 Expected WebSocket upgrade request`：`GET /update` 未携带 `Upgrade: websocket`
+  - `403 Forbidden`：设置了 WebSocket `Origin`，且不在 `CORS_ALLOWED_ORIGINS` 中
+  - `500 { "error": "WebSocket error", "code": 500 }`：Worker 转发至 DO 失败
+- 上报成功：服务端发送 ack，不关闭连接。
+  ```json
+  { "type": "ack", "ts": 1737638343000, "persisted": true, "nextD1WriteAfterMs": 60000, "nextWssReportAfterMs": 60000 }
+  ```
+  `persisted` 表示本条消息是否触发 D1 历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时使用服务器 `wss_report_interval`；无前端访问时使用 `report_interval`，但最低为 `60` 秒，不区分资源告警缓存是否活跃。缺失或非法的 WSS 间隔回退为 `2` 秒。
+  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=5` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 5` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 5` / `config_md5` 时，ack 会同时返回动态配置协商字段。schema `3` / `4` Agent 仍会收到各自版本的兼容配置：
+  ```json
+  {
+    "type": "ack",
+    "ts": 1737638343000,
+    "persisted": false,
+    "nextD1WriteAfterMs": 30000,
+    "nextWssReportAfterMs": 2000,
+    "config_schema": 5,
+    "config_md5": "b4d7c0d...",
+    "has_config": true,
+    "body": "collect_interval=2&report_interval=60&reset_day=1&schema_version=5&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2",
+    "config_body": "collect_interval=2&report_interval=60&reset_day=1&schema_version=5&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2",
+    "payload": {
+      "collect_interval": 2,
+      "report_interval": 60,
+      "reset_day": 1,
+      "schema_version": 5,
+      "custom_ct": "gd-ct-dualstack.ip.zstaticcdn.com",
+      "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
+      "custom_cm": "gd-cm-dualstack.ip.zstaticcdn.com",
+      "custom_bd": "",
+      "interface": "",
+      "connection_mode": "auto",
+      "wss_report_interval": 2,
+      "config_md5": "b4d7c0d..."
+    }
+  }
+  ```
+  `has_config:false` 表示当前 MD5 一致且没有待确认流量修正；`has_config:true` 时 Agent 应优先按 `body` / `config_body` 复用 POST 动态配置解析逻辑，或读取结构化 `payload`。官方 WSS Agent 默认仅在首次上报、约每 60 秒或本地配置 MD5 变化时携带 `config_schema` / `config_md5`；本次消息未携带这些字段时，ack 可以只包含 `persisted` / `nextD1WriteAfterMs` / `nextWssReportAfterMs` 等基础字段，不携带配置协商字段。若存在待确认流量修正，`body` / `config_body` 与 `payload` 会追加 `rx_correction` / `tx_correction`，Agent 应应用后通过 WSS 或 POST 回传确认。
+- 流量修正确认成功：
+  ```json
+  { "type": "ack", "ts": 1737638343000, "correction": true }
+  ```
+- 上报失败：服务端先发送错误帧，然后使用 close code `1008` 关闭 WebSocket；close reason 与 `error` 一致。
+  ```json
+  { "type": "error", "ts": 1737638343000, "error": "Invalid secret", "code": 401 }
+  ```
+  常见错误：
+
+  | code | error | 是否查询 D1 | 说明 |
+  | ---- | ----- | ---------- | ---- |
+  | 400 | `Invalid JSON` | 否 | WebSocket 消息不是合法 JSON |
+  | 400 | `Invalid report payload` | 否 | 消息不是对象，或 `type:"update"` 的 `payload` 非对象 |
+  | 400 | `Invalid server ID` | 否 | `id` 为空、过长或包含非法字符 |
+  | 401 | `Invalid secret` | 否 | 第一条有效上报未携带正确 `secret`；认证后显式发送错误 `secret` 也会关闭连接 |
+  | 403 | `Server ID changed` | 否 | 已认证连接切换为另一个 `id` |
+  | 404 | `Server not found` | 是 | `id` 格式合法，但 `servers` 表不存在该服务器 |
+  | 400 | `Missing history_partition_id` | 是 | 服务器历史分区未初始化，且自动优化后仍不可用 |
+  | 400 | `Missing metrics` | 视认证状态而定 | 认证成功后没有有效 `metrics` / `samples` / `batch` |
+  | 400 | `Invalid correction` | 否 | `rx_correction` / `tx_correction` 格式非法 |
+
+> Agent 收到任意 `type:"error"` 或 close code `1008` 后，应停止当前 WSS 连接和 POST fallback 上报，至少等待 `120` 秒后再重新连接或重试 POST，避免认证/配置错误时持续消耗额度。
+
+**WebSocket 计费注意**
+
+- 建立 `wss://.../update` 连接需要一次 `GET + Upgrade`，该握手按一次 Workers request 计入。
+- 连接建立后的 Agent 上报消息由 Durable Object 标准 WebSocket API 接收，不使用 Hibernation API 接管 `/update` 连接；它们作为 Durable Objects WebSocket incoming messages 计量，Cloudflare 计费口径按 `20:1` 折算为 DO requests。
+- 该模式避免高频 Agent 指标消息表现为 hibernation wakeup，但只要 Agent 长连接存在，DO 会保持非休眠状态并产生 duration（GB-s）。前端订阅 `/api/ws` 仍使用 WebSocket Hibernation API。
+- 因此，Agent 应保持长连接；不要每次采样都断开重连。错误 `id` / `secret` 当前在 DO 消息阶段返回错误帧并关闭，避免每次上报都走 Worker 401。
+
 **副作用**
 
-1. `metrics_history` 只写入本次请求中最新的一个样本，避免 1 秒采集时放大 D1 写入次数。
+1. `POST /update` 的 `metrics_history` 只写入本次请求中最新的一个样本；`wss://.../update` 首条成功指标立即写入一次，后续按服务器 `report_interval` 最多写入一次 D1。
 2. 触发 Durable Object `MetricsBroadcaster` 内部广播，统一发送 `{type:"batchUpdate", ts, updates:[...]}` 格式，前端按样本时间逐个回放。
 3. 写入 `request.cf.country`（或 `cf-ipcountry` Header）作为该条记录的 `region` 字段。~~服务端会统一转大写。~~ **2026-07-26 修订**：当前按原值入库；Cloudflare 的国家代码通常为大写，但自定义回退 Header 不会被规范化。
 
@@ -371,7 +478,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 ## 2. 公开 API（前端/管理端共用）
 
-> ~~以下接口除 `/api/ws` 外，若 `site_options.is_public !== 'true'` 则必须携带 JWT。~~ **2026-07-26 修订**：`/api/servers`、`/api/server`、`/api/history/all` 在私有站点需要 JWT；`/api/config`、`/api/ws`、`/theme` 无论站点是否公开均可访问。
+> ~~以下接口除 `/api/ws` 外，若 `site_options.is_public !== 'true'` 则必须携带 JWT。~~ **2026-07-26 修订**：`/api/servers`、`/api/server`、`/api/history/all` 在私有站点需要 JWT；`/api/config`、`/api/ws`、`/theme` 无论站点是否公开均可访问。**2026-08-19 修订**：私有站点的 `/api/ws` 也需要通过 WebSocket JWT 认证，公开站点仍可匿名连接。
 > 命中 Turnstile 时需带 `X-Turnstile-Token` 或 `X-Turnstile-Verified`。
 
 ### 2.1 `GET /api/config` - 获取站点配置
@@ -404,6 +511,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
     "a": 1,
     "b": 2
   },
+  "frontend_ws_timeout_minutes": 20,
   "long_history_points": 120
 }
 ```
@@ -423,6 +531,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `last_workers_version` | string\|null | **仅登录时出现**；远程最新 Workers 版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
 | `last_agent_version` | string\|null | **仅登录时出现**；远程最新 Agent 版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
 | `theme_options`      | object       | 第三方主题自定义配置；未配置时为空对象，匿名请求也会返回 |
+| `frontend_ws_timeout_minutes` | number | 前端实时订阅连接超时分钟数，范围 `0`-`1440`；默认 `0` 表示不超时 |
 | `long_history_points` | number      | 长历史查询返回的采样点数，后台可选 `60`、`120`、`180`、`240` |
 
 > ~~`X-Turnstile-Token` 携带且验证成功时，响应头会同步设置 `X-Turnstile-Verified`。~~ **2026-07-26 修订**：当前前端从响应体的 `turnstile_verified` 保存凭证；响应 Header 尚未实际写入。
@@ -477,7 +586,6 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
     "show_price": true,
     "show_expire": true,
     "show_tf": true,
-    "show_time": true,
     "display_mode": "bar"
   }
 }
@@ -489,7 +597,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `latestReportUpdates` | 每台服务器最近一次批量上报的采样回放数据，用于新页面连续回放；来自 Worker/DO 内存缓存，缓存约 4 分钟，进程重启或 DO 回收后允许为空。REST 响应中的样本统一为 `{ ts, data }`，`data` 按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed` |
 | `stats`       | 聚合统计：在线阈值 300 秒（5 分钟无上报视为离线）                                          |
 | `regionStats` | 按 ISO 区域码（大写）统计的服务器数                                                  |
-| `sysConfig`   | 当前站点开关：`show_price`、`show_expire`、`show_tf`、`show_time`、`display_mode`。主题配置请从 `/api/config` 的 `theme_options` 读取。~~旧版示例中的 `site_title` 不在该对象内。~~（2026-07-26 修订） |
+| `sysConfig`   | 当前站点开关：`show_price`、`show_expire`、`show_tf`、`display_mode`。主题配置请从 `/api/config` 的 `theme_options` 读取。~~旧版示例中的 `site_title` 不在该对象内。~~（2026-07-26 修订） |
 
 > `/api/servers` 的 `latestReportUpdates` 与 `servers[].ping` / `servers[].loss` 读取自 DO 实时状态，并在当前 Worker isolate 内短缓存约 4 分钟。该缓存不跨 isolate 共享，冷启动或缓存过期时会回源 DO。
 
@@ -699,6 +807,13 @@ Content-Type: application/json
   - `subscribe`（可选，默认 `all`）：
     - `all` → 订阅所有服务器的最新指标（**批量合并推送，每 5 秒一次**）
     - `<serverId>` → 只订阅指定服务器；~~收到上报后立即实时推送。~~ **2026-07-26 修订**：同样经过最长约 5 秒的 Worker 合并窗口
+  - `token` / `auth_token` / `ws_token`（私有站点可选）：JWT 登录令牌，用于浏览器 WebSocket 无法设置 `Authorization` Header 的场景
+
+**鉴权**：
+
+- 公开站点：无需 JWT。
+- 私有站点：必须通过 WebSocket JWT 认证，认证来源支持 `Authorization: Bearer <jwt>`、`Cookie: cfsm_auth=<jwt>`、查询参数 `token` / `auth_token` / `ws_token`。浏览器前端同域走 Cookie，跨域走查询参数。
+- `ids` 只控制订阅过滤范围，不是服务端鉴权。
 
 **Response** `101 Switching Protocols`（WebSocket 握手）
 
@@ -718,9 +833,7 @@ Sec-WebSocket-Version: 13
 | `subscribe=all` | 批量合并，每 5 秒一次 | `batchUpdate` | 减少消息数量，降低前端渲染压力 |
 | `subscribe=<serverId>` | 最长约 5 秒批量窗口 | `batchUpdate` | 单台服务器详情页仅过滤目标 ID，消息仍经统一合并队列 |
 
-> `subscribe=all` 默认不推送任何服务器更新。客户端应先调用 `/api/servers` 获取当前可见服务器列表，再通过 WebSocket 通道发送 `subscribe` 消息，使用 `servers[].id` 作为过滤列表。该过滤是客户端订阅范围控制，不是服务端鉴权。
->
-> **安全提示**：`/api/ws` 本身不校验 JWT、站点公开状态或 `is_hidden`。知道服务器 ID 的客户端可以使用单 ID scope 订阅；如需服务端权限隔离，应先修改实现，不能把 `ids` 过滤当作鉴权。
+> `subscribe=all` 默认不推送任何服务器更新。客户端应先调用 `/api/servers` 获取当前可见服务器列表，再通过 WebSocket 通道发送 `subscribe` 消息，使用 `servers[].id` 作为过滤列表。
 
 **服务端 → 客户端消息**：
 
@@ -787,6 +900,7 @@ Sec-WebSocket-Version: 13
 
 - `503 { "error": "WebSocket not enabled", "code": 503 }` —— 未绑定 `METRICS_BROADCASTER` Durable Object
 - `426 Expected WebSocket upgrade request` —— 缺少 `Upgrade: websocket` 头
+- `401 { "error": "Unauthorized", "code": 401 }` —— 私有站点缺少有效 WebSocket JWT
 - `400 Invalid subscription scope` —— URL 中的 `subscribe` 不合法
 - `403 Forbidden` ——设置了 WebSocket `Origin`，且不在 `CORS_ALLOWED_ORIGINS` 中
 - `500 { "error": "WebSocket error", "code": 500 }` —— Worker 转发至 DO 失败
@@ -796,7 +910,14 @@ Sec-WebSocket-Version: 13
 ```js
 const { servers } = await (await fetch('/api/servers')).json();
 const ids = servers.map(s => s.id);
-const ws = new WebSocket('wss://status.example.com/api/ws?subscribe=all');
+const url = new URL('wss://status.example.com/api/ws');
+url.searchParams.set('subscribe', 'all');
+const sameHost = url.host === location.host;
+if (!sameHost) {
+  const token = localStorage.getItem('jwt_token');
+  if (token) url.searchParams.set('token', token);
+}
+const ws = new WebSocket(url.toString());
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: 'subscribe', scope: 'all', ids }));
 };
@@ -873,8 +994,8 @@ https://raw.githubusercontent.com/huilang-me/CFSM-Theme-Store/refs/heads/main/th
 | `/`、`/#/`、`/#/server/:id` 等前台路径 | `theme_url` 为空时返回内置主题；配置第三方主题时返回反代后的主题 `index.html` |
 | `/admin` | 始终返回内置默认主题的管理后台入口 |
 | `/admin/` | `302` 跳转到 `/admin#admin` |
-| `/assets/*` | 配置或预览第三方主题时反代对应主题 `assets/`；从 `/admin` 引用时优先返回内置静态资源 |
-| 其他静态路径 | 不走主题反代，仍由项目原有 ASSETS 或 public 文件处理 |
+| `/assets/*` | 配置或预览第三方主题时反代对应主题 `assets/`；未配置主题时返回 404 |
+| 其他静态路径 | 不走主题反代，由 Workers Static Assets 直接处理，缓存头以 `public/_headers` 为准 |
 
 **主题 URL 规则**：
 
@@ -1026,7 +1147,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 
 ***
 
-### 3.5 `action: d1_usage` - D1 / Workers 用量
+### 3.5 `action: d1_usage` - D1 / Workers / Durable Objects 用量
 
 **Request**
 
@@ -1049,19 +1170,37 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
     "today": {
       "rowsRead": 12345,
       "rowsWritten": 678,
-      "workersRequests": 1234
+      "workersRequests": 1234,
+      "durableObjectsRequests": 1420,
+      "durableObjectsHttpRequests": 1000,
+      "durableObjectsHibernationWakeups": 400,
+      "durableObjectsInboundWebSocketMessages": 400,
+      "durableObjectsOutboundWebSocketMessages": 6900,
+      "durableObjectsRawRequests": 1400,
+      "durableObjectsRequestsEstimated": true,
+      "durableObjectsRequestBillingRatio": 20,
+      "durableObjectsDuration": 12.34
     },
     "yesterday": {
       "rowsRead": 23456,
       "rowsWritten": 789,
-      "workersRequests": 2345
+      "workersRequests": 2345,
+      "durableObjectsRequests": 2630,
+      "durableObjectsHttpRequests": 2000,
+      "durableObjectsHibernationWakeups": 600,
+      "durableObjectsInboundWebSocketMessages": 600,
+      "durableObjectsOutboundWebSocketMessages": 9120,
+      "durableObjectsRawRequests": 2600,
+      "durableObjectsRequestsEstimated": true,
+      "durableObjectsRequestBillingRatio": 20,
+      "durableObjectsDuration": 23.45
     }
   },
   "message": "d1UsageQueried"
 }
 ```
 
-> ~~响应会返回日期、套餐限额、剩余额度、数据库数量和 Account ID。~~ **2026-07-26 修订**：当前只返回两个时间范围的 `rowsRead`、`rowsWritten`、`workersRequests`；额度由前端自行展示，不属于 API 响应。
+> ~~响应会返回日期、套餐限额、剩余额度、数据库数量和 Account ID。~~ **2026-07-26 修订**：当前返回两个时间范围的 `rowsRead`、`rowsWritten`、`workersRequests`、`durableObjectsRequests`、`durableObjectsDuration`；额度由前端自行展示，不属于 API 响应。`durableObjectsDuration` 单位为 GB-s。**2026-08-15 修订**：`durableObjectsRequests` 为计费请求数估算值：`durableObjectsHttpRequests` 与 `durableObjectsHibernationWakeups` 按 `1:1` 计入，`durableObjectsInboundWebSocketMessages` 按 `20:1` 折算计入，`durableObjectsOutboundWebSocketMessages` 仅返回数量但不计入请求计费。`durableObjectsRawRequests` 为 `durableObjectsInvocationsAdaptiveGroups` 返回的原始 Durable Objects invocation request 总数，包含 HTTP/升级请求与 Hibernation 唤醒。
 >
 > **统计窗口**：`today` 为 UTC 当日 `00:00:00` 至 `23:59:59`；`yesterday` 为 UTC 昨日 `00:00:00` 至 `23:59:59`。
 
@@ -1075,6 +1214,8 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 >
 > - `d1AnalyticsAdaptiveGroups`（`rowsRead` / `rowsWritten`）
 > - `workersInvocationsAdaptive`（`requests`）
+> - `durableObjectsInvocationsAdaptiveGroups`（`requests`，作为 `durableObjectsRawRequests`）
+> - `durableObjectsPeriodicGroups`（`duration`，单位 GB-s）
 
 ***
 
@@ -1104,7 +1245,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
     "show_price": "true",
     "show_expire": "true",
     "show_tf": "true",
-    "show_time": "true",
+    "frontend_ws_timeout_minutes": "20",
     "long_history_points": "120",
     "tg_notify": "0",
     "tg_bot_token": "",
@@ -1130,7 +1271,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 **字段分类**：
 
 - `APPEARANCE_FIELDS`（写入 `appearance_options` JSON）：`site_title`、`custom_bg`、`custom_head`、`custom_script`、`csp_static`、`csp_api`、`display_mode`、`theme_options`
-- `SITE_FIELDS`（写入 `site_options` JSON）：`is_public`、`show_price`、`show_expire`、`show_tf`、`show_time`、`long_history_points`、通知、Turnstile、账号、Cloudflare、Ping 节点、`expire_reminder`、`theme_url`、历史优化字段等站点级配置
+- `SITE_FIELDS`（写入 `site_options` JSON）：`is_public`、`show_price`、`show_expire`、`show_tf`、`frontend_ws_timeout_minutes`、`long_history_points`、通知、Turnstile、账号、Cloudflare、Ping 节点、`expire_reminder`、`theme_url`、历史优化字段等站点级配置
 - 任何未列出的字段会被忽略
 
 **特殊处理**：
@@ -1141,6 +1282,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 - Turnstile：本次请求把 `turnstile_enabled` 或 `turnstile_login_enabled` 设为 `true` 时，必须同时提供非空 `turnstile_site_key` 与 `turnstile_secret_key`
 - 通知：规范化后的 `tg_notify` 非 `0`，或 `expire_reminder` 为 `1`-`7` 时，必须提供非空 `tg_bot_token`
 - `appearance_options` / `theme_options`：必须是非数组对象；`display_mode` 规范为 `bar` / `ring` / `table`
+- `frontend_ws_timeout_minutes`：规范为 `0`-`1440` 的整数分钟；缺失或非法值回退为 `0`，即前端连接不超时
 - `csp_static` / `csp_api`：逗号分隔，只保留不带凭据、路径、查询或 fragment 的 HTTPS origin，非法项会被静默过滤
 - 外观设置不是字段级合并：请求中只要出现任一外观字段或 `appearance_options`，后端就会用本次提供的外观字段重写整个 `appearance_options` JSON；部分更新时应先读取并回传完整外观对象
 - `jwt_secret` 不在保存阶段校验长度；只有长度至少 32 的值会用于签名，空值或短值在下一次加载设置时会被新生成并持久化的随机密钥替换
@@ -1504,8 +1646,10 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 **Response 200**
 
 ```json
-{ "ok": true, "subscribers": 3 }
+{ "ok": true, "subscribers": 3, "sockets": 4 }
 ```
+
+`subscribers` 为前端实时订阅 WebSocket 数；`sockets` 为 DO 当前托管的全部 WebSocket 数，包含 Agent 上报 WSS 连接。
 
 或
 
@@ -1611,7 +1755,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
   show_price: 'true' | 'false',
   show_expire: 'true' | 'false',
   show_tf: 'true' | 'false',
-  show_time: 'true' | 'false',
+  frontend_ws_timeout_minutes: string, // '0'-'1440'；0 = 不超时
   long_history_points: '60' | '120' | '180' | '240',
   tg_notify: '0' | '2' ... '30',    // 0 = 关闭；旧值 false 兼容为 0，true 兼容为 5
   tg_bot_token: string,
@@ -1646,6 +1790,9 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `ping`   | C → S | 精确文本 `{"type":"ping"}`                       |
 | `pong`   | S → C | 自动响应的精确文本 `{"type":"pong"}`，不带 `ts`   |
 | `batchUpdate` | S → C | `{ ts: number, updates: Array<{ serverId: string, samples: Array<{ ts: number, data: Partial<Server> }> }> }` |
+| `update` | C → S | `/update` WSS 上报可选包装格式：`{ type:"update", id:string, secret:string, payload:{ metrics?:object, samples?:array, batch?:array } }` |
+| `ack` | S → C | `/update` WSS 上报确认：`{ ts:number, persisted?:boolean, nextD1WriteAfterMs?:number, nextWssReportAfterMs?:number, correction?:true, config_schema?:number, config_md5?:string, has_config?:boolean, body?:string, config_body?:string, payload?:object }` |
+| `error` | S → C | `/update` WSS 上报错误：`{ ts:number, error:string, code:number }`；随后服务端通常以 close code `1008` 关闭连接 |
 
 客户端发来的 `pong` 会被静默忽略；它不是服务端定时发送的双向心跳协议。
 
@@ -1796,6 +1943,7 @@ curl -X POST https://status.example.com/admin/api \
     "settings":{
       "site_title":"My Status",
       "is_public":"true",
+      "frontend_ws_timeout_minutes":"20",
       "long_history_points":"120",
       "turnstile_enabled":"true",
       "turnstile_site_key":"1x00000000000000000000AA",
@@ -1835,6 +1983,9 @@ wscat -c "wss://status.example.com/api/ws?subscribe=all"
 
 # 订阅指定服务器
 wscat -c "wss://status.example.com/api/ws?subscribe=9b2c4d3e-1a2b-4c5d-9e8f-7a6b5c4d3e2f"
+
+# 私有站点：使用查询参数 JWT
+wscat -c "wss://status.example.com/api/ws?subscribe=all&token=<jwt>"
 ```
 
 ### 8.16 公共：获取主题商店
@@ -1874,6 +2025,7 @@ curl -X POST https://status.example.com/admin/api \
 
 ## 9. 版本与变更说明
 
+- **2026-08-20**：新增 `frontend_ws_timeout_minutes` 站点设置与 `/api/config` 字段；默认 `0` 不超时，正整数表示前端实时订阅连接的分钟级寿命上限。
 - **2026-07-26**：重新同步 `main` 源码；当前 Workers 版本为 `2.8.0 Beta`，Agent 版本为 `1.3.2`。补充主题商店、主题代理、最新批次缓存、测试通知、服务器导入/导出及探针动态配置，修正鉴权、历史查询、WebSocket、数据库维护和数据结构说明。
 - ~~**v1.x**：当前文档对应早期 `src/index.js`、`src/handlers/*`、`src/database/schema.js` 主线实现。~~ **2026-07-26 修订**：文档现以 `2.8.0 Beta` 的 `main` 分支实现为准。
 - **Breaking change**：`/admin/api` 由 `GET?action=...` 改为 `POST {action:...}` 模式，Token 校验与 Turnstile 走 Header 通道。

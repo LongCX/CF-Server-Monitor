@@ -116,12 +116,26 @@
           </select>
         </div>
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.networkInterface }}</label>
-          <input type="text" name="edit_interface" autocomplete="off" v-model.trim="editForm.interface" class="form-input" :placeholder="trans.networkInterfacePlaceholder">
+          <label class="form-label">{{ trans.connectionMode }}</label>
+          <select v-model="editForm.connection_mode" class="form-select" :disabled="!isWssReportEnabled">
+            <option value="auto">{{ trans.connectionModeAuto }}</option>
+            <option value="http">{{ trans.connectionModeHttp }}</option>
+          </select>
+          <p v-if="!isWssReportEnabled" class="text-muted text-sm mt-1">{{ trans.wssReportDisabledConnectionHint }}</p>
+        </div>
+        <div v-if="isWssReportEnabled && editForm.connection_mode === 'auto'" class="form-group flex-1">
+          <label class="form-label">{{ trans.wssReportInterval }}</label>
+          <select v-model="editForm.wss_report_interval" class="form-select">
+            <option v-for="second in 5" :key="second" :value="second">{{ second }}</option>
+          </select>
         </div>
       </div>
 
       <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.networkInterface }}</label>
+          <input type="text" name="edit_interface" autocomplete="off" v-model.trim="editForm.interface" class="form-input" :placeholder="trans.networkInterfacePlaceholder">
+        </div>
         <div class="form-group flex-1">
           <label class="form-label">{{ trans.rxCorrection }} (GB)</label>
           <input type="number" name="edit_rx_correction" autocomplete="off" v-model="editForm.rx_correction" class="form-input" placeholder="0" min="0" step="0.1">
@@ -251,6 +265,7 @@ const hasNodeNotificationOptions = computed(() => (
   !!props.settings.tg_bot_token &&
   isOfflineNotifyEnabled.value
 ))
+const isWssReportEnabled = computed(() => props.settings.wss_report_enabled === true)
 
 const normalizePriceInput = () => {
   editForm.value.price = normalizePrice(editForm.value.price)
@@ -277,6 +292,16 @@ watch(
       editForm.value.expire_date = renewal.expire_date
     }
   }
+)
+
+watch(
+  isWssReportEnabled,
+  (enabled) => {
+    if (!enabled) {
+      editForm.value.connection_mode = 'http'
+    }
+  },
+  { immediate: true }
 )
 
 const emit = defineEmits(['save', 'close', 'toggle-auto-update'])
