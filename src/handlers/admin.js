@@ -674,7 +674,7 @@ async function handleSendTestNotificationAction({ data }) {
     return createBadRequestResponse('tgBotTokenRequired');
   }
   try {
-    const testMsg = '这是一条来自 CF Server Monitor 的测试消息。';
+    const testMsg = 'Đây là một tin nhắn kiểm tra từ CF Server Monitor.';
     const result = await sendNotification({
       tg_bot_token,
       tg_chat_id: tg_chat_id || '',
@@ -688,11 +688,11 @@ async function handleSendTestNotificationAction({ data }) {
       notification_timezone: normalizeNotificationTimezone(notification_timezone),
       expire_notification_time: normalizeExpireNotificationTime(expire_notification_time)
     }, testMsg, {
-      event: '测试通知',
+      event: 'Thông báo kiểm tra',
       emoji: '✅',
       clients: ['CF Server Monitor'],
       count: 1,
-      message: '这是一条来自 CF Server Monitor 的测试消息。'
+      message: 'Đây là một tin nhắn kiểm tra từ CF Server Monitor.'
     });
     if(result) {
       console.warn('Test notification failed:', result);
