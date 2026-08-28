@@ -354,7 +354,7 @@ export function buildResourceAlertNotificationPayloads(alertNodes, recoveredNode
     payloads,
     buildGroupedResourceAlertEntries(alertNodes, 'triggerValue'),
     {
-      event: '资源负载告警',
+      event: 'Cảnh báo quá tải tài nguyên',
       emoji: '❌'
     }
   );
@@ -362,7 +362,7 @@ export function buildResourceAlertNotificationPayloads(alertNodes, recoveredNode
     payloads,
     buildGroupedResourceAlertEntries(recoveredNodes, 'current'),
     {
-      event: '资源负载恢复',
+      event: 'Tài nguyên đã khôi phục',
       emoji: '✅'
     }
   );
@@ -874,11 +874,11 @@ export async function checkOfflineNodes(db) {
 
     if (offlineNodes.length > 0) {
       const nodeList = offlineNodes
-        .map(n => `${n.name}  最后上报: ${formatLastReportTime(n.lastReportTime, siteSettings)}`)
+        .map(n => `${n.name}  Báo cáo lần cuối: ${formatLastReportTime(n.lastReportTime, siteSettings)}`)
         .join('\n');
       const msg = nodeList;
       await sendNotification(siteSettings, msg, {
-        event: '节点离线告警',
+        event: 'Cảnh báo nút (node) ngoại tuyến',
         emoji: '❌',
         clients: offlineNodes.map(n => n.name),
         count: offlineNodes.length,
@@ -890,7 +890,7 @@ export async function checkOfflineNodes(db) {
       const nodeList = recoveredNodes.map(n => n.name).join('\n');
       const msg = nodeList;
       await sendNotification(siteSettings, msg, {
-        event: '节点恢复通知',
+        event: 'Thông báo nút (node) đã khôi phục',
         emoji: '✅',
         clients: recoveredNodes.map(n => n.name),
         count: recoveredNodes.length,
@@ -1134,11 +1134,11 @@ export async function checkExpiringServers(db, options = {}) {
     }
 
     if (expiringServers.length > 0) {
-      const serverList = expiringServers.map(s => `${s.name}  剩余${s.days}天  ${s.expire_date}`).join('\n');
+      const serverList = expiringServers.map(s => `${s.name} Còn ${s.days} ngày  ${s.expire_date}`).join('\n');
       const msg = serverList;
       debug(`[Cron] 发送到期提醒通知: ${msg}`);
       await sendNotification(siteSettings, msg, {
-        event: '服务器到期提醒',
+        event: 'Nhắc nhở máy chủ sắp hết hạn',
         emoji: '⚠️',
         clients: expiringServers.map(s => s.name),
         count: expiringServers.length,

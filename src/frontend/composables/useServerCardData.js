@@ -407,10 +407,10 @@ export function useServerCardData(props) {
   const hasThreeNetDetails = computed(() => threeNetDetails.value.length > 0)
 
   const pingList = computed(() => [
-    { label: 'CT', value: props.server.ping_ct },
-    { label: 'CU', value: props.server.ping_cu },
-    { label: 'CM', value: props.server.ping_cm },
-    { label: 'BGP', value: props.server.ping_bd }
+    { label: 'VNPT', value: props.server.ping_ct },
+    { label: 'VIETTEL', value: props.server.ping_cu },
+    { label: 'FPT', value: props.server.ping_cm },
+    { label: 'OTHER', value: props.server.ping_bd }
   ].filter(ping => !isPingDisabled(ping.value)))
 
   const hasPingData = computed(() => pingList.value.length > 0)
