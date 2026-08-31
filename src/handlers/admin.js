@@ -1246,5 +1246,6 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
   } catch (e) {
     console.error('Admin API 错误:', e);
     return createErrorResponse(e);
+
   }
 }
